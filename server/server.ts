@@ -1,12 +1,13 @@
 import express, {Express} from "express";
 import dotenv from 'dotenv';
-import {Server} from "socket.io";
 import cors from "cors";
 import http from "http";
 import { advanceGame, closeJoining, endGame, initGame } from "./sdk";
 import { AptosClient, Types } from "aptos";
 
 dotenv.config();
+
+
 
 export enum GameStatus {
   STARTED = "STARTED",
@@ -56,84 +57,90 @@ export const app: Express = express();
 const server = http.createServer(app);
 
 const port = process.env.PORT || 8000;
-const socketIO = new Server(server);
 
 app.use(cors());
 
-socketIO.on("connect", async (socket) => {
-  const latestState = await viewLatestStates();
+
+
+app.get('/game_data', (req, res) => {
+  res.send('hello world')
+})
+
+app.get('/start_game', async (req, res) => {
+  await initGame(60, 100000000, 50, 1);
+  res.send('Game started')
+})
+
+
+// socketIO.on("connect", async (socket) => {
+//   const latestState = await viewLatestStates();
   
-  if (latestState.length === 0) {
-    socket.emit("initGame");
-  } else {
+//   if (latestState.length === 0) {
+//     socket.emit("initGame");
+//   } else {
 
-  }
+//   }
 
-  console.log(`A user connected ${socket.id}`);
+//   console.log(`A user connected ${socket.id}`);
 
-  socket.on("initGame", async () => {
-    await initGame(60, 100000000, 50, 1);
-  })
+//   socket.on("initGame", async () => {
+//     await initGame(60, 100000000, 50, 1);
+//   })
 
-  // listen for join game
-  socket.on("joinGame", async (address) => {
-    // await joinGame("token_name", "token_description", "token_uri");
+//   // listen for join game
+//   socket.on("joinGame", async (address) => {
+//     // await joinGame("token_name", "token_description", "token_uri");
 
-  })
+//   })
 
-  // listen for close joining
-  socket.on("closeJoiningg", async () => {
-    await closeJoining();
-  })
+//   // listen for close joining
+//   socket.on("closeJoiningg", async () => {
+//     await closeJoining();
+//   })
 
-  socket.on("initGame", async (data) => {
-    console.log("Initializing game...");
-    // Call your initGame function here and emit results to the client
-    await initGame(data.secsBtwRounds, data.buyAmount, data.maxPlayers, data.numMaxWinners)
-      .then((response) => {
-        console.log("Game initialized:", response);
-        // socket.emit("initGameResponse", response);
-      })
-      .catch((error) => {
-        console.error("Error initializing game:", error);
-        // socket.emit("initGameResponse", { error: error.message });
-      });
-  });
+//   socket.on("initGame", async (data) => {
+//     console.log("Initializing game...");
+//     // Call your initGame function here and emit results to the client
+//     await initGame(data.secsBtwRounds, data.buyAmount, data.maxPlayers, data.numMaxWinners)
+//       .then((response) => {
+//         console.log("Game initialized:", response);
+//         // socket.emit("initGameResponse", response);
+//       })
+//       .catch((error) => {
+//         console.error("Error initializing game:", error);
+//         // socket.emit("initGameResponse", { error: error.message });
+//       });
+//   });
 
-  socket.on("advanceGame", async (data) => {
-    console.log("Advancing game...");
-    // Call your advanceGame function here and emit results to the client
-    await advanceGame(data.playerLost, data.playerWon)
-      .then((response) => {
-        console.log("Game advanced:", response);
-        // socket.emit("advanceGameResponse", response);
-      })
-      .catch((error) => {
-        console.error("Error advancing game:", error);
-        // socket.emit("advanceGameResponse", { error: error.message });
-      });
-  });
+//   socket.on("advanceGame", async (data) => {
+//     console.log("Advancing game...");
+//     // Call your advanceGame function here and emit results to the client
+//     await advanceGame(data.playerLost, data.playerWon)
+//       .then((response) => {
+//         console.log("Game advanced:", response);
+//         // socket.emit("advanceGameResponse", response);
+//       })
+//       .catch((error) => {
+//         console.error("Error advancing game:", error);
+//         // socket.emit("advanceGameResponse", { error: error.message });
+//       });
+//   });
 
-  socket.on("endGame", async () => {
-    console.log("Ending the game...");
-    // Call your endGame function here and emit results to the client
-    await endGame()
-      .then((response) => {
-        console.log("Game ended:", response);
-        // socket.emit("endGameResponse", response);
-      })
-      .catch((error) => {
-        console.error("Error ending the game:", error);
-        // socket.emit("endGameResponse", { error: error.message });
-      });
-  });
+//   socket.on("endGame", async () => {
+//     console.log("Ending the game...");
+//     // Call your endGame function here and emit results to the client
+//     await endGame()
+//       .then((response) => {
+//         console.log("Game ended:", response);
+//         // socket.emit("endGameResponse", response);
+//       })
+//       .catch((error) => {
+//         console.error("Error ending the game:", error);
+//         // socket.emit("endGameResponse", { error: error.message });
+//       });
+//   });
 
   // Handle disconnection
-  socket.on("disconnect", () => {
-    console.log(`User disconnected: ${socket.id}`);
-    socket.disconnect(true);
-  });
-});
 
 export async function viewLatestStates(
 ): Promise<Types.MoveValue[]> {
@@ -142,7 +149,7 @@ export async function viewLatestStates(
     type_arguments: [],
     arguments: [],
   };
-  const client = new AptosClient("https://fullnode.devnet.aptoslabs.com");
+  const client = new AptosClient(process.env.NETWORK || "");
   return client.view(payload);
 }
 
