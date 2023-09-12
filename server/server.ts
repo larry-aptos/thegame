@@ -1,39 +1,38 @@
-import express, {Express} from "express";
-import dotenv from 'dotenv';
+import express, { Express } from "express";
+import dotenv from "dotenv";
 import cors from "cors";
 import http from "http";
-import { advanceGame, closeJoining, endGame, initGame } from "./sdk";
+import { advanceGame, endGame, forceClearPool, initGame } from "./sdk";
 import { AptosClient, Types } from "aptos";
 
 dotenv.config();
 
 interface PlayerStateView {
-  isAlive: boolean,
-  wins: number,
-  nftUri: string,
-  potentialWinning: number,
-  tokenIndex: number,
+  isAlive: boolean;
+  wins: number;
+  nftUri: string;
+  potentialWinning: number;
+  tokenIndex: number;
 }
 interface LatestPlayerState {
-  [address: string]: PlayerStateView
+  [address: string]: PlayerStateView;
 }
 
 interface GameState {
-  pool: number,
-  latestPlayerState: LatestPlayerState,
-  maxPlayer: number,
-  numBtwSecs: number,
+  pool: number;
+  latestPlayerState: LatestPlayerState;
+  maxPlayer: number;
+  numBtwSecs: number;
 }
 
 interface PlayerScore {
-  [address: string]: number,
+  [address: string]: number;
 }
 
 type Score = {
-  address: string,
-  score: number,
-}
-
+  address: string;
+  score: number;
+};
 
 export const app: Express = express();
 const server = http.createServer(app);
@@ -42,7 +41,7 @@ const port = process.env.PORT || 8000;
 
 app.use(cors());
 
-// initialize 
+// initialize
 let playerScore: PlayerScore = {};
 let gameState: GameState = {
   pool: 0,
@@ -51,14 +50,10 @@ let gameState: GameState = {
   numBtwSecs: 10,
 };
 
-app.get("/endGame", (req, res) => {
-  
-})
-
-app.post('/sendScore', (req, res) => {
+app.post("/send_score", (req, res) => {
   try {
     const requestBody = JSON.parse(req.body) as Score;
-    
+
     const address = requestBody.address;
     const score = requestBody.score;
 
@@ -67,28 +62,37 @@ app.post('/sendScore', (req, res) => {
     } else {
       playerScore[address] = score;
     }
-   
-    return res.status(200).json({ message: 'Success' });
+
+    return res.status(200).json({ message: "Success" });
   } catch (error) {
-    console.error('Error parsing JSON:', error);
-    return res.status(400).json({ error: 'Invalid JSON in the request body.' });
+    console.error("Error parsing JSON:", error);
+    return res.status(400).json({ error: "Invalid JSON in the request body." });
   }
+});
+
+app.get('/view_state', async (req, res) => {
+  return res.send(gameState);
 })
 
-
-app.get('/game_data', (req, res) => {
-  res.send('hello world')
-})
-
-app.get('/start_game', async (req, res) => {
-  await initGame(60, 100000000, 50, 1);
-  startCountdown(10);
-  res.send('Game started')
-})
+app.get("/start_game", async (req, res) => {
+  try {
+    await initGame(60, 100000000, 50, 1);
+  } catch (e) {
+    console.error("Error init game:", e);
+    await forceClearPool();
+  } finally {
+    startCountdown(10);
+    res.send("Game started");
+  }
+});
 
 async function startCountdown(seconds: number) {
   if (seconds <= 0) {
-    await advanceGame([], []);
+    try {
+      await advanceGame([], []);
+    } catch (e) {
+      console.log("Fail to close joining by advancing the game");
+    }
   } else {
     console.log(`Countdown: ${seconds} seconds remaining`);
     setTimeout(() => {
@@ -97,11 +101,10 @@ async function startCountdown(seconds: number) {
   }
 }
 
-// interval for 5 seconds
-// call view function to get the state
-const interval = setInterval(runPeriodically, gameState.numBtwSecs*1000); // 10000 milliseconds = 10 seconds
+setInterval(runPeriodically, gameState.numBtwSecs * 1000);
 
 async function runPeriodically() {
+  console.log("Periodic run triggered");
   const playerScoreKVPair = Object.entries(playerScore);
 
   if (playerScoreKVPair.length === 0) {
@@ -119,83 +122,20 @@ async function runPeriodically() {
 
   if (wonPlayer.length <= gameState.maxPlayer) {
     await endGame();
+    // reset the state
+    playerScore = {};
+    gameState = {
+      pool: 0,
+      latestPlayerState: {},
+      maxPlayer: 1,
+      numBtwSecs: 10,
+    };
   } else {
     await advanceGame(lostPlayer, wonPlayer);
   }
 }
 
-// socketIO.on("connect", async (socket) => {
-//   const latestState = await viewLatestStates();
-  
-//   if (latestState.length === 0) {
-//     socket.emit("initGame");
-//   } else {
-
-//   }
-
-//   console.log(`A user connected ${socket.id}`);
-
-//   socket.on("initGame", async () => {
-//     await initGame(60, 100000000, 50, 1);
-//   })
-
-//   // listen for join game
-//   socket.on("joinGame", async (address) => {
-//     // await joinGame("token_name", "token_description", "token_uri");
-
-//   })
-
-//   // listen for close joining
-//   socket.on("closeJoiningg", async () => {
-//     await closeJoining();
-//   })
-
-//   socket.on("initGame", async (data) => {
-//     console.log("Initializing game...");
-//     // Call your initGame function here and emit results to the client
-//     await initGame(data.secsBtwRounds, data.buyAmount, data.maxPlayers, data.numMaxWinners)
-//       .then((response) => {
-//         console.log("Game initialized:", response);
-//         // socket.emit("initGameResponse", response);
-//       })
-//       .catch((error) => {
-//         console.error("Error initializing game:", error);
-//         // socket.emit("initGameResponse", { error: error.message });
-//       });
-//   });
-
-//   socket.on("advanceGame", async (data) => {
-//     console.log("Advancing game...");
-//     // Call your advanceGame function here and emit results to the client
-//     await advanceGame(data.playerLost, data.playerWon)
-//       .then((response) => {
-//         console.log("Game advanced:", response);
-//         // socket.emit("advanceGameResponse", response);
-//       })
-//       .catch((error) => {
-//         console.error("Error advancing game:", error);
-//         // socket.emit("advanceGameResponse", { error: error.message });
-//       });
-//   });
-
-//   socket.on("endGame", async () => {
-//     console.log("Ending the game...");
-//     // Call your endGame function here and emit results to the client
-//     await endGame()
-//       .then((response) => {
-//         console.log("Game ended:", response);
-//         // socket.emit("endGameResponse", response);
-//       })
-//       .catch((error) => {
-//         console.error("Error ending the game:", error);
-//         // socket.emit("endGameResponse", { error: error.message });
-//       });
-//   });
-
-  // Handle disconnection
-
-export async function viewLatestStates(
-): Promise<Types.MoveValue[]> {
+export async function viewLatestStates(): Promise<Types.MoveValue[]> {
   const payload: Types.ViewRequest = {
     function: `${process.env.CONTRACT_ADDRESS}::game_manager::view_latest_states`,
     type_arguments: [],

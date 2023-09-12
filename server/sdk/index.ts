@@ -1,7 +1,5 @@
 import { BCS, TxnBuilderTypes, Types } from "aptos";
-import {
-  submitAdminTransaction,
-} from "./useSubmitTransaction";
+import { submitAdminTransaction } from "./useSubmitTransaction";
 
 export async function initGame(
   secsBtwRounds: number,
@@ -16,6 +14,12 @@ export async function initGame(
       BCS.bcsSerializeUint64(maxPlayers),
       BCS.bcsSerializeUint64(numMaxWinners),
     ]),
+  );
+}
+
+export async function forceClearPool() {
+  return await submitAdminTransaction(
+    constructEntryFuncPayload("game_manager", "force_clear_pool", []),
   );
 }
 
@@ -62,7 +66,7 @@ export function constructEntryFuncPayload(
   return new TxnBuilderTypes.TransactionPayloadEntryFunction(
     TxnBuilderTypes.EntryFunction.natural(
       // Fully qualified module name
-      `${process.env.NEXT_PUBLIC_CONTRACT_ADDRESS}::${moduleName}`,
+      `${process.env.CONTRACT_ADDRESS}::${moduleName}`,
       // Module function
       moduleFunc,
       [],

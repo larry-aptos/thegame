@@ -7,7 +7,7 @@ import { useWallet } from "@aptos-labs/wallet-adapter-react";
 
 export default function ReactionTimeGame() {
   const context = useContext(StateContext);
-  const {account} = useWallet();
+  const { account } = useWallet();
 
   const [isRedBoxVisible, setIsRedBoxVisible] = useState(true);
   const [isGreenBoxVisible, setIsGreenBoxVisible] = useState(false);
