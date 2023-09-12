@@ -2,14 +2,12 @@
 
 import { useContext, useEffect, useState } from "react";
 import { StateContext } from "../providers";
-import { Box, Button, Heading } from "@chakra-ui/react";
+import { Box, Button, Flex, Heading, Text } from "@chakra-ui/react";
+import { useWallet } from "@aptos-labs/wallet-adapter-react";
 
-type ReactionTimeGameProps = {
-  address: string;
-};
-
-export default function ReactionTimeGame({ address }: ReactionTimeGameProps) {
+export default function ReactionTimeGame() {
   const context = useContext(StateContext);
+  const {account} = useWallet();
 
   const [isRedBoxVisible, setIsRedBoxVisible] = useState(true);
   const [isGreenBoxVisible, setIsGreenBoxVisible] = useState(false);
@@ -20,7 +18,7 @@ export default function ReactionTimeGame({ address }: ReactionTimeGameProps) {
   const handleClick = () => {
     if (isRedBoxVisible) {
       // Player clicked on the red box, mark them as lost
-      const currentPlayerState = context.playerState[address];
+      const currentPlayerState = context.playerState[account?.address!];
       if (currentPlayerState) {
         const updatedPlayerState = {
           ...currentPlayerState,
@@ -28,7 +26,7 @@ export default function ReactionTimeGame({ address }: ReactionTimeGameProps) {
         };
         context.updatePlayerState({
           ...context.playerState,
-          [address]: updatedPlayerState,
+          [account?.address!]: updatedPlayerState,
         });
       }
       setHasFailed(true);
@@ -39,7 +37,7 @@ export default function ReactionTimeGame({ address }: ReactionTimeGameProps) {
         const timeDifference = endTime - startTime;
 
         // Update the player's score based on the time difference
-        const currentPlayerState = context.playerState[address];
+        const currentPlayerState = context.playerState[account?.address!];
         if (currentPlayerState) {
           const updatedPlayerState = {
             ...currentPlayerState,
@@ -47,7 +45,7 @@ export default function ReactionTimeGame({ address }: ReactionTimeGameProps) {
           };
           context.updatePlayerState({
             ...context.playerState,
-            [address]: updatedPlayerState,
+            [account?.address!]: updatedPlayerState,
           });
         }
 
@@ -72,16 +70,20 @@ export default function ReactionTimeGame({ address }: ReactionTimeGameProps) {
   }, []);
 
   return (
-    <Box textAlign="center">
-      <Heading>Reaction Game</Heading>
+    <Box textAlign="center" w="100%" h="50%">
+      <Heading>!Attention Please!</Heading>
       {isRedBoxVisible ? (
-        <Button onClick={handleClick} variant="outline" colorScheme="red">
-          Click Me to Fail
-        </Button>
+        <Flex height="100%">
+          <Box bg="#CE3626" onClick={handleClick} width={"100%"}>
+            <Heading>Wait For Green!</Heading>
+          </Box>
+        </Flex>
       ) : isGreenBoxVisible ? (
-        <Button onClick={handleClick} variant="outline" colorScheme="green">
-          Click Me Now!
-        </Button>
+        <Flex height="100%">
+          <Box bg="#4BDB6A" onClick={handleClick} width={"100%"}>
+            <Text>Click Me Now!</Text>
+          </Box>
+        </Flex>
       ) : (
         <div>
           {hasFailed ? (

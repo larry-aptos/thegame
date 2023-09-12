@@ -95,22 +95,22 @@ export function Providers({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <StateContext.Provider
-      value={{
-        gameState,
-        playerState,
-        roundState,
-        updateGameState,
-        updatePlayerState,
-        updateRoundState,
-      }}
-    >
-      <ChakraProvider theme={theme}>
-        <AptosWalletAdapterProvider
-          plugins={wallets}
-          autoConnect={true}
-          onError={(error) => {
-            console.log("error", error);
+    <ChakraProvider>
+      <AptosWalletAdapterProvider
+        plugins={wallets}
+        autoConnect={true}
+        onError={(error) => {
+          console.log("error", error);
+        }}
+      >
+        <StateContext.Provider
+          value={{
+            gameState,
+            playerState,
+            roundState,
+            updateGameState,
+            updatePlayerState,
+            updateRoundState,
           }}
         >
           <Flex direction="column" align="flex-end" pr={5} pt={5}>
@@ -119,8 +119,8 @@ export function Providers({ children }: { children: React.ReactNode }) {
           <Flex direction="column" align="center">
             {children}
           </Flex>
-        </AptosWalletAdapterProvider>
-      </ChakraProvider>
-    </StateContext.Provider>
+        </StateContext.Provider>
+      </AptosWalletAdapterProvider>
+    </ChakraProvider>
   );
 }

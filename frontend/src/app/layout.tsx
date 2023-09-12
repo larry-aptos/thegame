@@ -7,7 +7,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className="h-full scroll-smooth">
+    <html lang="en" className="h-screen h-full scroll-smooth">
       <body style={{ backgroundColor: "#0d011d", color: "white" }}>
         <Providers>{children}</Providers>
       </body>

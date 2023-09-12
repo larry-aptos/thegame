@@ -1,28 +1,7 @@
 import { BCS, TxnBuilderTypes, Types } from "aptos";
-import useSubmitTransaction, {
+import {
   submitAdminTransaction,
 } from "./useSubmitTransaction";
-
-const useSubmitGameTransaction = () => {
-  const { submitTransaction, submitAdminTransaction, transactionResponse } =
-    useSubmitTransaction();
-
-  async function joinGame(
-    tokenName: string,
-    tokenDescription: string,
-    tokenURI: string,
-  ) {
-    let randTokenName = (Math.random() + 1).toString(36).substring(7);
-    const payload: Types.TransactionPayload = {
-      type: "entry_function_payload",
-      function: `${process.env.NEXT_PUBLIC_CONTRACT_ADDRESS}::game_manager::join_game`,
-      type_arguments: [],
-      arguments: [randTokenName, tokenDescription, tokenURI],
-    };
-    await submitTransaction(payload);
-  }
-  return { initGame, joinGame, closeJoining, advanceGame, endGame };
-};
 
 export async function initGame(
   secsBtwRounds: number,
@@ -91,5 +70,3 @@ export function constructEntryFuncPayload(
     ),
   );
 }
-
-export default useSubmitGameTransaction;

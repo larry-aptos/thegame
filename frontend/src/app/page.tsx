@@ -8,6 +8,7 @@ import useSubmitGameTransaction from "./sdk";
 import { useWallet } from "@aptos-labs/wallet-adapter-react";
 import WalletsModal from "./wallet/WalletModel";
 import FunPage from "./fun/page";
+import WebSocketClient from "./websocket/client";
 
 export default function LandingPage() {
   const context = useContext(StateContext);
@@ -105,7 +106,7 @@ export default function LandingPage() {
         if (playerState.finishedCurrentRound) {
           <Spinner>Waiting for other players to finish...</Spinner>;
         } else {
-          return <ReactionTimeGame address={account?.address!} />;
+          return <ReactionTimeGame />;
         }
       case GameStatus.ENDED:
         return <FunPage />;
@@ -191,13 +192,18 @@ export default function LandingPage() {
     context.updatePlayerState(updatedPlayerState);
   };
 
+  useEffect(() => {
+    WebSocketClient();
+  },[]);
+  
   return (
-    <Box>
+    <Box width="100%" height="100vh">
       {renderComponent()}
       <WalletsModal
         handleClose={closeWalletModal}
         modalOpen={isWalletModalOpen}
       />
+      {/* <ReactionTimeGame address={account?.address!} /> */}
     </Box>
   );
 }

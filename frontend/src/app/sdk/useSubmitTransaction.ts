@@ -27,6 +27,28 @@ export type TransactionResponseOnError = {
   message: string;
 };
 
+export async function submitAdminTransaction(
+  payload: TxnBuilderTypes.TransactionPayload,
+) {
+  const generateSignSubmitWaitForTransactionCall = async (
+    transactionPayload: TxnBuilderTypes.TransactionPayload,
+  ): Promise<TransactionResponse> => {
+    const aptosClient = new AptosClient(DEVNET_FULLNODE);
+
+    const response = await aptosClient.generateSignSubmitWaitForTransaction(
+      adminAccount(),
+      transactionPayload,
+    );
+    return {
+      transactionSubmitted: true,
+      transactionHash: response["hash"],
+      success: true,
+    };
+  };
+
+  await generateSignSubmitWaitForTransactionCall(payload);
+}
+
 const useSubmitTransaction = () => {
   const [transactionResponse, setTransactionResponse] =
     useState<TransactionResponse | null>(null);
@@ -40,29 +62,6 @@ const useSubmitTransaction = () => {
     }
   }, [transactionResponse]);
 
-  async function submitAdminTransaction(
-    payload: TxnBuilderTypes.TransactionPayload,
-  ) {
-    const generateSignSubmitWaitForTransactionCall = async (
-      transactionPayload: TxnBuilderTypes.TransactionPayload,
-    ): Promise<TransactionResponse> => {
-      const aptosClient = new AptosClient(DEVNET_FULLNODE);
-
-      const response = await aptosClient.generateSignSubmitWaitForTransaction(
-        adminAccount(),
-        transactionPayload,
-      );
-      return {
-        transactionSubmitted: true,
-        transactionHash: response["hash"],
-        success: true,
-      };
-    };
-
-    await generateSignSubmitWaitForTransactionCall(payload).then(
-      setTransactionResponse,
-    );
-  }
   async function submitTransaction(payload: Types.TransactionPayload) {
     setTransactionInProcess(true);
 
