@@ -37,7 +37,7 @@ module the_game::game_manager {
         num_max_winners: u64,
     }
 
-    struct PlayerStateView has store, drop {
+    struct PlayerStateView has copy, store, drop {
         is_alive: bool,
         wins: u64,
         nft_uri: String,
@@ -60,6 +60,7 @@ module the_game::game_manager {
     #[resource_group_member(group = aptos_framework::object::ObjectGroup)]
     struct Play has key {
         index: u64,
+        prize: Coin<AptosCoin>,
     }
 
     #[resource_group_member(group = aptos_framework::object::ObjectGroup)]
@@ -119,6 +120,16 @@ module the_game::game_manager {
         game_config.current = simple_map::create();
     }
 
+    /// Clear the pool by putting all the pool money to the admin. Testing only
+    entry fun force_clear_pool(
+        admin: &signer,
+    ) acquires GameConfig {
+        assert!(signer::address_of(admin) == @the_game, error::permission_denied(ENOT_AUTHORIZED));
+        let pool = &mut borrow_global_mut<GameConfig>(@the_game).pool;
+        let coins = coin::extract_all(pool);
+        coin::deposit<AptosCoin>(signer::address_of(admin), coins);
+    }
+
     /// Join game if not already in game and if the game is joinable
     entry fun join_game(
         user: &signer,
@@ -170,36 +181,96 @@ module the_game::game_manager {
         while (!vector::is_empty(&players_won)) {
             let player = vector::pop_back(&mut players_won);
             let token_obj = simple_map::borrow(&game_config.current, &player);
-            let play_obj = object::address_to_object(object::object_address(token_obj));
-            mark_play_win(play_obj);
+            let play = object::convert<Token, Play>(*token_obj);
+            mark_play_win(play);
         };
         // handle user who lost
         while (!vector::is_empty(&players_lost)) {
             let player = vector::pop_back(&mut players_lost);
-            let game_config = borrow_global_mut<GameConfig>(@the_game);
             let token_obj = simple_map::borrow(&game_config.current, &player);
-            let uri = token::uri(*token_obj);
-            let play_obj = object::address_to_object(object::object_address(token_obj));
-            let token_index = borrow_global<Play>(object::object_address(token_obj)).index;
-            let wins = borrow_global<Attributes>(object::object_address(token_obj)).wins;
-            mark_play_loss(play_obj);
-            simple_map::add(&mut game_config.eliminated, copy player, PlayerStateView {
-                is_alive: false,
-                wins,
-                nft_uri: uri,
-                potential_winning: 0,
-                token_index,
-            });
+            let player_state_view = convert_token_to_player_state_view(*token_obj, false);
+            let play = object::convert<Token, Play>(*token_obj);
+            mark_play_loss(play);
+            simple_map::add(&mut game_config.eliminated, player, player_state_view);
         };
     }
 
     /// End game
     entry fun end_game(
         admin: &signer,
-    ) acquires GameConfig {
+    ) acquires GameConfig, Play, Attributes {
         assert!(signer::address_of(admin) == @the_game, error::permission_denied(ENOT_AUTHORIZED));
+        let end_state = view_latest_states();
         let game_config = borrow_global_mut<GameConfig>(@the_game);
-        game_config.joinable = false;
+        let pool = &mut game_config.pool;
+        // loop through current users and give money
+        let current_players = simple_map::keys(&game_config.current);
+        while (vector::length(&current_players) > 1) {
+            let player_won = vector::pop_back(&mut current_players);
+            let amount = simple_map::borrow(&end_state, &player_won).potential_winning;
+            let coins = coin::extract<AptosCoin>(pool, amount);
+            // send money to the user's token
+            let token_obj = simple_map::borrow(&game_config.current, &player_won);
+            let play = borrow_global_mut<Play>(object::object_address(token_obj));
+            coin::merge(&mut play.prize, coins);
+            // Modify NFTs as well?
+        };
+        // pay the rest to the last player
+        let last_player = vector::pop_back(&mut current_players);
+        let token_obj = simple_map::borrow(&game_config.current, &last_player);
+        let play = borrow_global_mut<Play>(object::object_address(token_obj));
+        coin::merge(&mut play.prize, coin::extract_all<AptosCoin>(pool));
+    }
+
+    /// Claim coin
+    entry fun claim(
+        claimer: &signer,
+        token: Object<Token>,
+    ) acquires Play {
+        let claimer_addr = signer::address_of(claimer);
+        let owner = object::owner(token);
+        assert!(claimer_addr == owner, error::permission_denied(ENOT_OWNER));
+        let play = borrow_global_mut<Play>(object::object_address(&token));
+        let coins = coin::extract_all(&mut play.prize);
+        coin::deposit<AptosCoin>(claimer_addr, coins);
+    }
+
+    #[view]
+    fun view_latest_states(): SimpleMap<address, PlayerStateView> acquires GameConfig, Play, Attributes {
+        let game_config = borrow_global<GameConfig>(@the_game);
+        let player_states = simple_map::create<address, PlayerStateView>();
+        // Loop through alive players
+        let current_players = simple_map::keys(&game_config.current);
+        let i = 0;
+        let win_sum = 0;
+        let total_coin = coin::value<AptosCoin>(&game_config.pool);
+        while (i < vector::length(&current_players)) {
+            let current_player = vector::borrow(&current_players, i);
+            let token_obj = simple_map::borrow(&game_config.current, current_player);
+            let player_state_view = convert_token_to_player_state_view(*token_obj, true);
+            let wins = player_state_view.wins;
+            win_sum = win_sum + wins;
+            simple_map::add(&mut player_states, *current_player, player_state_view);
+            i = i + 1;
+        };
+        // Calculate the payout of alive players
+        let i = 0;
+        while (i < vector::length(&current_players)) {
+            let current_player = vector::borrow(&current_players, i);
+            let player_state = simple_map::borrow_mut(&mut player_states, current_player);
+            player_state.potential_winning = win_sum / player_state.wins * total_coin;
+            i = i + 1;
+        };
+        // Loop through eliminated players
+        let eliminated_players = simple_map::keys(&game_config.eliminated);
+        let i = 0;
+        while (i < vector::length(&eliminated_players)) {
+            let eliminated_player = vector::borrow(&eliminated_players, i);
+            let player_state_view = simple_map::borrow(&game_config.eliminated, eliminated_player);
+            simple_map::add(&mut player_states, *eliminated_player, *player_state_view);
+            i = i + 1;
+        };
+        player_states
     }
 
     // ======================================================================
@@ -261,7 +332,10 @@ module the_game::game_manager {
         add_attributes_property_map(&property_mutator_ref, &attributes);
         // move attributes to the token
         move_to(&object_signer, attributes);
-        move_to(&object_signer, Play { index });
+        move_to(&object_signer, Play {
+            index,
+            prize: coin::zero<AptosCoin>(),
+        });
         // Move the object metadata to the token object
         let token_metadata = TokenMetadata {
             burn_ref,
@@ -289,7 +363,8 @@ module the_game::game_manager {
     ) acquires Attributes, Play, TokenMetadata {
         // burn the nft
         move_from<Attributes>(object::object_address(&play));
-        let Play { index: _ } = move_from<Play>(object::object_address(&play));
+        let Play { index: _, prize: zero_coin } = move_from<Play>(object::object_address(&play));
+        coin::destroy_zero(zero_coin);
         let token_metadata = move_from<TokenMetadata>(object::object_address(&play));
         let TokenMetadata {
             burn_ref,
@@ -300,6 +375,22 @@ module the_game::game_manager {
 
         property_map::burn(property_mutator_ref);
         token::burn(burn_ref);
+    }
+
+    fun convert_token_to_player_state_view(
+        token: Object<Token>,
+        is_alive: bool,
+    ): PlayerStateView acquires Play, Attributes {
+        let uri = token::uri(token);
+        let token_index = borrow_global<Play>(object::object_address(&token)).index;
+        let wins = borrow_global<Attributes>(object::object_address(&token)).wins;
+        PlayerStateView {
+            is_alive,
+            wins,
+            nft_uri: uri,
+            potential_winning: 0,
+            token_index,
+        }
     }
 
     fun update_attributes(
