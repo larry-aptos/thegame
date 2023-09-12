@@ -1,28 +1,29 @@
-import { useEffect } from 'react';
-import io from 'socket.io-client';
+import { useEffect } from "react";
+import io from "socket.io-client";
 
-const WebSocketClient = ({ onDataReceived }: {onDataReceived: (newData: any) => void}) => {
-  useEffect(() => {
-    const socket = io("localhost:8000", {
-        transports: ["websocket"],
-      });
+const WebSocketClient = () => {
+  // useEffect(() => {
+  //   const socket = io("localhost:8000", {
+  //     transports: ["websocket"],
+  //   });
 
-    socket.on('connect', () => {
-      console.log('WebSocket connected');
-    });
+  //   socket.on("connect", () => {
+  //     console.log("WebSocket connected");
+  //   });
 
-    socket.on('message', (data) => {
-      onDataReceived(data);
-    });
+  //   socket.on("matchFound", (data) => {
+  //     console.log("Match found!");
+  //     console.log("Opponent:", data.opponent);
+  //   });
 
-    socket.on('disconnect', () => {
-      console.log('WebSocket disconnected');
-    });
+  //   socket.on("disconnect", () => {
+  //     console.log("WebSocket disconnected");
+  //   });
 
-    return () => {
-      socket.disconnect();
-    };
-  }, [onDataReceived]);
+  //   return () => {
+  //     socket.disconnect();
+  //   };
+  // }, []);
 
   return null;
 };

@@ -1,10 +1,9 @@
-
-
 import express, {Express} from "express";
 import dotenv from 'dotenv';
-import {Server} from "socket.io";
+import {Server, Socket} from "socket.io";
 import cors from "cors";
 import http from "http";
+import { DefaultEventsMap } from "socket.io/dist/typed-events";
 
 
 dotenv.config();
@@ -18,21 +17,42 @@ const socketIO = new Server(server);
 
 app.use(cors());
 
+interface Match {
+  address: String;
+  socket: Socket<DefaultEventsMap, DefaultEventsMap, DefaultEventsMap, any>;
+}
 
-socketIO.on("connection", (socket) => {
-  console.log("A user connected");
+interface GameState {
+
+}
+
+const waitingPlayers: Match[] = []; // Array to store waiting players
+
+socketIO.on("connect", (socket) => {
+  console.log(`A user connected ${socket.id}`);
 
   // Listen for incoming messages
-  socket.on("message", (message) => {
-    console.log("Received message:", message);
-
-    // Broadcast the message to all connected clients
-    socketIO.emit("message", message);
+  socket.on("joinMatch", (address) => {
+    waitingPlayers.push({address, socket});
+    console.log("Received address:", address);
   });
+  
+  socket.on("initGame", () => {
+    
+  })
 
   // Handle disconnection
   socket.on("disconnect", () => {
-    console.log("A user disconnected");
+    console.log(`User disconnected: ${socket.id}`);
+    socket.disconnect(true);
+    const index = waitingPlayers.map((player, idx) => {
+      if (player.socket.id === socket.id) {
+        return idx;
+      }
+    })[0];
+    if (index) {
+      waitingPlayers.splice(index, 1);
+    }
   });
 });
 

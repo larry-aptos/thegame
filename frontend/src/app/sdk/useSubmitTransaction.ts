@@ -1,7 +1,13 @@
-import { AptosClient, FailedTransactionError, Types } from "aptos";
+import {
+  AptosClient,
+  FailedTransactionError,
+  TxnBuilderTypes,
+  Types,
+} from "aptos";
 import { useEffect, useState } from "react";
 import { NetworkName, useWallet } from "@aptos-labs/wallet-adapter-react";
-import { TESTNET_FULLNODE } from "../util";
+import { DEVNET_FULLNODE } from "../util";
+import { adminAccount } from "../account/account";
 
 export type TransactionResponse =
   | TransactionResponseOnSubmission
@@ -34,13 +40,36 @@ const useSubmitTransaction = () => {
     }
   }, [transactionResponse]);
 
+  async function submitAdminTransaction(
+    payload: TxnBuilderTypes.TransactionPayload,
+  ) {
+    const generateSignSubmitWaitForTransactionCall = async (
+      transactionPayload: TxnBuilderTypes.TransactionPayload,
+    ): Promise<TransactionResponse> => {
+      const aptosClient = new AptosClient(DEVNET_FULLNODE);
+
+      const response = await aptosClient.generateSignSubmitWaitForTransaction(
+        adminAccount(),
+        transactionPayload,
+      );
+      return {
+        transactionSubmitted: true,
+        transactionHash: response["hash"],
+        success: true,
+      };
+    };
+
+    await generateSignSubmitWaitForTransactionCall(payload).then(
+      setTransactionResponse,
+    );
+  }
   async function submitTransaction(payload: Types.TransactionPayload) {
     setTransactionInProcess(true);
 
     const signAndSubmitTransactionCall = async (
       transactionPayload: Types.TransactionPayload,
     ): Promise<TransactionResponse> => {
-      const aptosClient = new AptosClient(TESTNET_FULLNODE);
+      const aptosClient = new AptosClient(DEVNET_FULLNODE);
       const responseOnError: TransactionResponseOnError = {
         transactionSubmitted: false,
         message: "Unknown Error",
@@ -86,6 +115,7 @@ const useSubmitTransaction = () => {
 
   return {
     submitTransaction,
+    submitAdminTransaction,
     transactionInProcess,
     transactionResponse,
     clearTransactionResponse,

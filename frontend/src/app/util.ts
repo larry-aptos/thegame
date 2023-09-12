@@ -1,4 +1,4 @@
-export const TESTNET_FULLNODE = "https://fullnode.testnet.aptoslabs.com";
+export const DEVNET_FULLNODE = "https://fullnode.devnet.aptoslabs.com";
 
 export const truncateAddress = (address: string | undefined) => {
   if (!address) return;
