@@ -4,8 +4,11 @@ module the_game::game_manager {
     use std::string::{String, utf8};
     use std::option;
     use std::vector;
+    use aptos_std::math64;
     use aptos_std::simple_map::{Self, SimpleMap};
 
+    use aptos_framework::account;
+    use aptos_framework::aptos_account;
     use aptos_framework::aptos_coin::AptosCoin;
     use aptos_framework::coin::{Self, Coin};
     use aptos_framework::object::{Self, Object, TransferRef};
@@ -176,6 +179,7 @@ module the_game::game_manager {
     ) acquires GameConfig, Play, Attributes, TokenMetadata {
         assert!(signer::address_of(admin) == @the_game, error::permission_denied(ENOT_AUTHORIZED));
         let game_config = borrow_global_mut<GameConfig>(@the_game);
+        game_config.joinable = false;
 
         // handle user who won first
         while (!vector::is_empty(&players_won)) {
@@ -191,6 +195,7 @@ module the_game::game_manager {
             let player_state_view = convert_token_to_player_state_view(*token_obj, false);
             let play = object::convert<Token, Play>(*token_obj);
             mark_play_loss(play);
+            simple_map::remove(&mut game_config.current, &player);
             simple_map::add(&mut game_config.eliminated, player, player_state_view);
         };
     }
@@ -236,7 +241,7 @@ module the_game::game_manager {
     }
 
     #[view]
-    fun view_latest_states(): SimpleMap<address, PlayerStateView> acquires GameConfig, Play, Attributes {
+    public fun view_latest_states(): SimpleMap<address, PlayerStateView> acquires GameConfig, Play, Attributes {
         let game_config = borrow_global<GameConfig>(@the_game);
         let player_states = simple_map::create<address, PlayerStateView>();
         // Loop through alive players
@@ -255,11 +260,13 @@ module the_game::game_manager {
         };
         // Calculate the payout of alive players
         let i = 0;
-        while (i < vector::length(&current_players)) {
-            let current_player = vector::borrow(&current_players, i);
-            let player_state = simple_map::borrow_mut(&mut player_states, current_player);
-            player_state.potential_winning = win_sum / player_state.wins * total_coin;
-            i = i + 1;
+        if (win_sum > 0) {
+            while (i < vector::length(&current_players)) {
+                let current_player = vector::borrow(&current_players, i);
+                let player_state = simple_map::borrow_mut(&mut player_states, current_player);
+                player_state.potential_winning = math64::mul_div(total_coin, player_state.wins, win_sum);
+                i = i + 1;
+            }
         };
         // Loop through eliminated players
         let eliminated_players = simple_map::keys(&game_config.eliminated);
@@ -271,6 +278,12 @@ module the_game::game_manager {
             i = i + 1;
         };
         player_states
+    }
+
+    #[view]
+    public fun view_current_pool(): u64 acquires GameConfig {
+        let game_config = borrow_global<GameConfig>(@the_game);
+        coin::value<AptosCoin>(&game_config.pool)
     }
 
     // ======================================================================
@@ -305,7 +318,11 @@ module the_game::game_manager {
         token_uri: String,
         index: u64,
     ): Object<Token> {
-        let constructor_ref = token::create_named_token(
+        // we probably don't want this
+        if (!account::exists_at(signer::address_of(minter))) {
+            aptos_account::create_account(signer::address_of(minter));
+        };
+        let constructor_ref = token::create_from_account(
             minter,
             collection,
             token_description,
