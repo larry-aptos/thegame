@@ -1,7 +1,7 @@
 module the_game::game_manager {
     use std::error;
     use std::signer;
-    use std::string::{String, utf8};
+    use std::string::{Self, String, utf8};
     use std::option;
     use std::vector;
     use aptos_std::math64;
@@ -12,6 +12,7 @@ module the_game::game_manager {
     use aptos_framework::aptos_coin::AptosCoin;
     use aptos_framework::coin::{Self, Coin};
     use aptos_framework::object::{Self, Object, TransferRef};
+    use aptos_framework::timestamp;
     use aptos_token_objects::collection;
     use aptos_token_objects::token::{Self, Token};
     use aptos_token_objects::property_map;
@@ -24,9 +25,78 @@ module the_game::game_manager {
     const ENOT_EMPTY: u64 = 3;
 
     const COLLECTION_NAME: vector<u8> = b"The Game";
-    const COLLECTION_DESCRIPTION: vector<u8> = b"";
-    const COLLECTION_URI: vector<u8> = b"";
+    const COLLECTION_DESCRIPTION: vector<u8> = b"Welcome to THE GAME - An interactive, risk based, gamified and social experience on Aptos. Are you going to be the last person standing?";
+    const COLLECTION_URI: vector<u8> = b"https://storage.googleapis.com/space-fighters-assets/game_collection.png";
 
+    const NFT_NAME: vector<u8> = b"Player";
+    const NFT_DESCRIPTION: vector<u8> = b"Welcome to THE GAME - An interactive, risk based, gamified and social experience on Aptos. Are you going to be the last person standing?";
+    const NFT_URI_PREFIX: vector<u8> = b"https://storage.googleapis.com/space-fighters-assets/";
+    const NFT_URIS: vector<vector<u8>> = vector[
+        b"alligator1.png",
+        b"alligator2.png",
+        b"alligator3.png",
+        b"alligator4.png",
+        b"alligator5.png",
+        b"alligator6.png",
+        b"alligator7.png",
+        b"alligator8.png",
+        b"alligator9.png",
+        b"alligator10.png",
+        b"alligator11.png",
+        b"alligator12.png",
+        b"alligator13.png",
+        b"kangaroo1.png",
+        b"kangaroo2.png",
+        b"kangaroo3.png",
+        b"kangaroo4.png",
+        b"kangaroo5.png",
+        b"kangaroo6.png",
+        b"kangaroo7.png",
+        b"kangaroo8.png",
+        b"kangaroo9.png",
+        b"kangaroo10.png",
+        b"kangaroo11.png",
+        b"kangaroo12.png",
+        b"kangaroo13.png",
+        b"monkey1.png",
+        b"monkey2.png",
+        b"monkey3.png",
+        b"monkey4.png",
+        b"monkey5.png",
+        b"monkey6.png",
+        b"monkey7.png",
+        b"monkey8.png",
+        b"monkey9.png",
+        b"monkey10.png",
+        b"monkey11.png",
+        b"monkey12.png",
+        b"monkey13.png",
+        b"panda1.png",
+        b"panda2.png",
+        b"panda3.png",
+        b"panda4.png",
+        b"panda5.png",
+        b"panda6.png",
+        b"panda7.png",
+        b"panda8.png",
+        b"panda9.png",
+        b"panda10.png",
+        b"panda11.png",
+        b"panda12.png",
+        b"panda13.png",
+        b"parrot1.png",
+        b"parrot2.png",
+        b"parrot3.png",
+        b"parrot4.png",
+        b"parrot5.png",
+        b"parrot6.png",
+        b"parrot7.png",
+        b"parrot8.png",
+        b"parrot9.png",
+        b"parrot10.png",
+        b"parrot11.png",
+        b"parrot12.png"
+    ];
     struct GameConfig has key {
         pool: Coin<AptosCoin>,
         eliminated: SimpleMap<address, PlayerStateView>,
@@ -38,6 +108,7 @@ module the_game::game_manager {
         max_players: u64,
         total_players: u64,
         num_max_winners: u64,
+        available_nfts: vector<String>,
     }
 
     struct PlayerStateView has copy, store, drop {
@@ -96,6 +167,7 @@ module the_game::game_manager {
             max_players: 0,
             total_players: 0,
             num_max_winners: 0,
+            available_nfts: vector[],
         })
     }
 
@@ -115,8 +187,15 @@ module the_game::game_manager {
         game_config.secs_between_rounds = secs_between_rounds;
         game_config.buy_in = buy_in;
         game_config.joinable = true;
-        game_config.max_players = max_players;
+        game_config.max_players = math64::min(max_players, vector::length(&NFT_URIS));
         game_config.num_max_winners = num_max_winners;
+        game_config.available_nfts = vector[];
+        let i = 0;
+        while (i < vector::length(&NFT_URIS)) {
+            let nft_uri = vector::borrow(&NFT_URIS, i);
+            vector::push_back(&mut game_config.available_nfts, utf8(*nft_uri));
+            i = i + 1;
+        };
 
         // reset player list
         game_config.eliminated = simple_map::create();
@@ -136,9 +215,6 @@ module the_game::game_manager {
     /// Join game if not already in game and if the game is joinable
     entry fun join_game(
         user: &signer,
-        token_name: String,
-        token_description: String,
-        token_uri: String,
     ) acquires GameConfig {
         let game_config = borrow_global_mut<GameConfig>(@the_game);
         // If game is at capacity, exit
@@ -157,7 +233,12 @@ module the_game::game_manager {
         };
         // If user is already in game, exit
         let minter = object::generate_signer_for_extending(&game_config.extend_ref);
-        let token = mint(&minter, user_addr, token_name, token_description, token_uri, game_config.total_players);
+        // randomly pick a token uri
+        let random_index = timestamp::now_microseconds() % vector::length(&game_config.available_nfts);
+        let suffix = vector::remove(&mut game_config.available_nfts, random_index);
+        let token_uri = utf8(NFT_URI_PREFIX);
+        string::append(&mut token_uri, suffix);
+        let token = mint(&minter, user_addr, utf8(NFT_NAME), utf8(NFT_DESCRIPTION), token_uri, game_config.total_players);
         simple_map::add(&mut game_config.current, user_addr, token);
         coin::merge(&mut game_config.pool, coins);
     }
@@ -203,7 +284,7 @@ module the_game::game_manager {
     /// End game
     entry fun end_game(
         admin: &signer,
-    ) acquires GameConfig, Play, Attributes {
+    ) acquires GameConfig, Play, Attributes, TokenMetadata {
         assert!(signer::address_of(admin) == @the_game, error::permission_denied(ENOT_AUTHORIZED));
         let end_state = view_latest_states();
         let game_config = borrow_global_mut<GameConfig>(@the_game);
@@ -218,7 +299,25 @@ module the_game::game_manager {
             let token_obj = simple_map::borrow(&game_config.current, &player_won);
             let play = borrow_global_mut<Play>(object::object_address(token_obj));
             coin::merge(&mut play.prize, coins);
-            // Modify NFTs as well?
+            // Modify NFTs as well
+            let token_uri = &simple_map::borrow(&end_state, &player_won).nft_uri;
+            let new_suffix = if (string::index_of(token_uri, &utf8(b"alligator")) < string::length(token_uri)) {
+                utf8(b"alligator_win.png")
+            } else if (string::index_of(token_uri, &utf8(b"kangaroo")) < string::length(token_uri)) {
+                utf8(b"kangaroo_win.png")
+            } else if (string::index_of(token_uri, &utf8(b"monkey")) < string::length(token_uri)) {
+                utf8(b"monkey_win.png")
+            } else if (string::index_of(token_uri, &utf8(b"panda")) < string::length(token_uri)) {
+                utf8(b"panda_win.png")
+            } else if (string::index_of(token_uri, &utf8(b"parrot")) < string::length(token_uri)) {
+                utf8(b"parrot_win.png")
+            } else {
+                utf8(b"")
+            };
+            let token_uri = utf8(NFT_URI_PREFIX);
+            string::append(&mut token_uri, new_suffix);
+            let mutator_ref = &borrow_global<TokenMetadata>(object::object_address(token_obj)).mutator_ref;
+            token::set_uri(mutator_ref, token_uri);
         };
         // pay the rest to the last player
         let last_player = vector::pop_back(&mut current_players);
