@@ -8,7 +8,10 @@ import useSubmitGameTransaction from "./sdk";
 import { useWallet } from "@aptos-labs/wallet-adapter-react";
 import WalletsModal from "./wallet/WalletModel";
 import FunPage from "./fun/page";
+<<<<<<< Updated upstream
 import { fetchAPI } from "./util";
+=======
+>>>>>>> Stashed changes
 
 export default function LandingPage() {
   const context = useContext(StateContext);
@@ -104,6 +107,86 @@ export default function LandingPage() {
     }
   };
 
+<<<<<<< Updated upstream
+=======
+  useEffect(() => {
+    if (context.gameState.gameStatus === GameStatus.STARTED) {
+      const roundHasEnded = () => {
+        const currentTimestamp = Date.now();
+        const { currentRoundStartTimestamp } = context.roundState;
+        const roundDuration = 10000;
+        const currentRoundEndTimestamp =
+          currentRoundStartTimestamp + roundDuration;
+        return currentTimestamp >= currentRoundEndTimestamp;
+      };
+      const intervalId = setInterval(() => {
+        if (roundHasEnded()) {
+          clearInterval(intervalId);
+          handleRoundEnd();
+        }
+      }, 1000);
+
+      return () => clearInterval(intervalId);
+    }
+  }, []);
+
+  const handleRoundEnd = async () => {
+    // get all the player score and calculate and update wonplayer and lostplayer based on the score ranking.
+    // 50% faster player will be in wonplayer, rest in lostplayer. and then1. if we have wonplayers length <= numWinners,
+    // if so, we should end the game by calling endGame, change gamestatus 2. if wonplayers is longer, do nothing else
+    const playerScores = Object.keys(context.playerState).map((playerId) => ({
+      playerId,
+      score: context.playerState[playerId].currentScore,
+    }));
+    const sortedPlayers = playerScores.sort((a, b) => a.score - b.score);
+    const numWinners = Math.ceil(sortedPlayers.length / 2);
+    const wonPlayers = sortedPlayers
+      .slice(0, numWinners)
+      .map((player) => player.playerId);
+    const lostPlayers = sortedPlayers
+      .slice(numWinners)
+      .map((player) => player.playerId);
+
+    context.updateGameState({
+      ...context.gameState,
+      wonPlayers,
+      lostPlayers,
+    });
+
+    if (wonPlayers.length <= context.gameState.numWinners) {
+      await endGame().then(() => {
+        context.updateGameState({
+          ...context.gameState,
+          gameStatus: GameStatus.ENDED,
+        });
+      });
+    }
+
+    context.updateRoundState({
+      ...context.roundState,
+      currentRoundStartTimestamp: Date.now(),
+    });
+
+    const updatedPlayerState = { ...context.playerState };
+
+    lostPlayers.forEach((playerId) => {
+      if (updatedPlayerState[playerId]) {
+        updatedPlayerState[playerId].lost = true;
+      }
+    });
+
+    const currentPlayerId = account?.address;
+    if (currentPlayerId && updatedPlayerState[currentPlayerId]) {
+      updatedPlayerState[currentPlayerId] = {
+        ...updatedPlayerState[currentPlayerId],
+        finishedCurrentRound: false,
+      };
+    }
+
+    context.updatePlayerState(updatedPlayerState);
+  };
+
+>>>>>>> Stashed changes
   return (
     <Box width="100%" height="100vh">
       {showJoining ? (
