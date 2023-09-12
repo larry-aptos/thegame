@@ -7,51 +7,33 @@ import { AptosClient, Types } from "aptos";
 
 dotenv.config();
 
-
-
-export enum GameStatus {
-  STARTED = "STARTED",
-  JOINING = "JOINING",
-  ENDED = "ENDED",
-  UNKNOWN = "UNKNOWN",
+interface PlayerStateView {
+  isAlive: boolean,
+  wins: number,
+  nftUri: string,
+  potentialWinning: number,
+  tokenIndex: number,
+}
+interface LatestPlayerState {
+  [address: string]: PlayerStateView
 }
 
-export interface PlayerScoreMap {
-  [playerId: string]: number;
+interface GameState {
+  pool: number,
+  latestPlayerState: LatestPlayerState,
+  maxPlayer: number,
+  numBtwSecs: number,
 }
 
-export interface PlayerState {
-  currentScore: number;
-  finishedCurrentRound: boolean;
-  lost: boolean;
-  uri: string;
+interface PlayerScore {
+  [address: string]: number,
 }
 
-export interface GameState {
-  gameStatus: GameStatus;
-  wonPlayers: string[];
-  lostPlayers: string[];
-  numWinners: number;
-  playerScore: PlayerScoreMap;
-  playerState: PlayerStatesMap;
+type Score = {
+  address: string,
+  score: number,
 }
 
-export interface RoundState {
-  currentRoundStartTimestamp: number;
-}
-
-export interface PlayerStatesMap {
-  [playerId: string]: PlayerState;
-}
-
-export interface State {
-  gameState: GameState;
-  playerState: PlayerStatesMap;
-  roundState: RoundState;
-  updateGameState: (newState: GameState) => void;
-  updatePlayerState: (newState: PlayerStatesMap) => void;
-  updateRoundState: (newState: RoundState) => void;
-}
 
 export const app: Express = express();
 const server = http.createServer(app);
@@ -60,6 +42,38 @@ const port = process.env.PORT || 8000;
 
 app.use(cors());
 
+// initialize 
+let playerScore: PlayerScore = {};
+let gameState: GameState = {
+  pool: 0,
+  latestPlayerState: {},
+  maxPlayer: 1,
+  numBtwSecs: 10,
+};
+
+app.get("/endGame", (req, res) => {
+  
+})
+
+app.post('/sendScore', (req, res) => {
+  try {
+    const requestBody = JSON.parse(req.body) as Score;
+    
+    const address = requestBody.address;
+    const score = requestBody.score;
+
+    if (address in playerScore) {
+      // do nothing cuz we just persist the first score to avoid cheating
+    } else {
+      playerScore[address] = score;
+    }
+   
+    return res.status(200).json({ message: 'Success' });
+  } catch (error) {
+    console.error('Error parsing JSON:', error);
+    return res.status(400).json({ error: 'Invalid JSON in the request body.' });
+  }
+})
 
 
 app.get('/game_data', (req, res) => {
@@ -68,9 +82,47 @@ app.get('/game_data', (req, res) => {
 
 app.get('/start_game', async (req, res) => {
   await initGame(60, 100000000, 50, 1);
+  startCountdown(10);
   res.send('Game started')
 })
 
+async function startCountdown(seconds: number) {
+  if (seconds <= 0) {
+    await advanceGame([], []);
+  } else {
+    console.log(`Countdown: ${seconds} seconds remaining`);
+    setTimeout(() => {
+      startCountdown(seconds - 1);
+    }, 1000);
+  }
+}
+
+// interval for 5 seconds
+// call view function to get the state
+const interval = setInterval(runPeriodically, gameState.numBtwSecs*1000); // 10000 milliseconds = 10 seconds
+
+async function runPeriodically() {
+  const playerScoreKVPair = Object.entries(playerScore);
+
+  if (playerScoreKVPair.length === 0) {
+    // early return if we don't get any players in this round
+    return;
+  }
+
+  playerScoreKVPair.sort((a, b) => a[1] - b[1]);
+  const middleIndex = Math.floor(playerScoreKVPair.length / 2);
+
+  const lowerScores = playerScoreKVPair.slice(0, middleIndex);
+  const higherScores = playerScoreKVPair.slice(middleIndex);
+  const wonPlayer = lowerScores.map((pair) => pair[0]);
+  const lostPlayer = higherScores.map((pair) => pair[0]);
+
+  if (wonPlayer.length <= gameState.maxPlayer) {
+    await endGame();
+  } else {
+    await advanceGame(lostPlayer, wonPlayer);
+  }
+}
 
 // socketIO.on("connect", async (socket) => {
 //   const latestState = await viewLatestStates();
