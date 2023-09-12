@@ -83,26 +83,6 @@ export default function LandingPage() {
     setIsWalletModalOpen(false);
   };
 
-  const renderComponent = () => {
-    switch (context.gameState.gameStatus) {
-      case GameStatus.STARTED:
-        const playerState = context.playerState[account?.address!];
-        // game started but player didn't join
-        if (!playerState || playerState.lost) {
-          return <FunPage />;
-        }
-        if (playerState.finishedCurrentRound) {
-          <Spinner>Waiting for other players to finish...</Spinner>;
-        } else {
-          return <ReactionTimeGame />;
-        }
-      case GameStatus.ENDED:
-        return <FunPage />;
-      default:
-        return null; // Return null or any other component for the default case
-    }
-  };
-
   useEffect(() => {
     if (context.gameState.gameStatus === GameStatus.STARTED) {
       const roundHasEnded = () => {
@@ -116,69 +96,12 @@ export default function LandingPage() {
       const intervalId = setInterval(() => {
         if (roundHasEnded()) {
           clearInterval(intervalId);
-          handleRoundEnd();
         }
       }, 1000);
 
       return () => clearInterval(intervalId);
     }
   }, []);
-
-  const handleRoundEnd = async () => {
-    // get all the player score and calculate and update wonplayer and lostplayer based on the score ranking.
-    // 50% faster player will be in wonplayer, rest in lostplayer. and then1. if we have wonplayers length <= numWinners,
-    // if so, we should end the game by calling endGame, change gamestatus 2. if wonplayers is longer, do nothing else
-    const playerScores = Object.keys(context.playerState).map((playerId) => ({
-      playerId,
-      score: context.playerState[playerId].currentScore,
-    }));
-    const sortedPlayers = playerScores.sort((a, b) => a.score - b.score);
-    const numWinners = Math.ceil(sortedPlayers.length / 2);
-    const wonPlayers = sortedPlayers
-      .slice(0, numWinners)
-      .map((player) => player.playerId);
-    const lostPlayers = sortedPlayers
-      .slice(numWinners)
-      .map((player) => player.playerId);
-
-    context.updateGameState({
-      ...context.gameState,
-      wonPlayers,
-      lostPlayers,
-    });
-
-    if (wonPlayers.length <= context.gameState.numWinners) {
-      await endGame().then(() => {
-        context.updateGameState({
-          ...context.gameState,
-          gameStatus: GameStatus.ENDED,
-        });
-      });
-    }
-
-    context.updateRoundState({
-      ...context.roundState,
-      currentRoundStartTimestamp: Date.now(),
-    });
-
-    const updatedPlayerState = { ...context.playerState };
-
-    lostPlayers.forEach((playerId) => {
-      if (updatedPlayerState[playerId]) {
-        updatedPlayerState[playerId].lost = true;
-      }
-    });
-
-    const currentPlayerId = account?.address;
-    if (currentPlayerId && updatedPlayerState[currentPlayerId]) {
-      updatedPlayerState[currentPlayerId] = {
-        ...updatedPlayerState[currentPlayerId],
-        finishedCurrentRound: false,
-      };
-    }
-
-    context.updatePlayerState(updatedPlayerState);
-  };
 
   return (
     <Box width="100%" height="100vh">

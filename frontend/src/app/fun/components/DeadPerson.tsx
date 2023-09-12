@@ -10,11 +10,11 @@ type DeadPersonProps = {
 export default function DeadPerson({ state, playerId }: DeadPersonProps) {
   return (
     <Box>
-      <Box className={["image-wrapper"]}>
+      <Box className={"image-wrapper"}>
         <Text mt="2" align="center" fontSize="15px">
           {playerId}
         </Text>
-        <Image src={state.uri} alt={playerId} className={["image-element"]} />
+        <Image src={state.uri} alt={playerId} className={"image-element"} />
         <CloseIcon color="red.500" className={"x-icon"} />
       </Box>
       <Text mt="6" align="center" fontSize="20px" color="red" fontWeight="bold">

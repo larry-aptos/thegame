@@ -167,14 +167,14 @@ export default function FunPage() {
         <Box>
           {state.lost ? (
             <Box>
-              <Box className={["image-wrapper"]}>
+              <Box className={"image-wrapper"}>
                 <Text mt="2" align="center" fontSize="15px">
                   {playerId}
                 </Text>
                 <Image
                   src={state.uri}
                   alt={playerId}
-                  className={["image-element"]}
+                  className={"image-element"}
                 />
                 <CloseIcon color="red.500" className={"x-icon"} />
               </Box>
@@ -216,9 +216,9 @@ export default function FunPage() {
 }
 
 function Count(startNumber: any, endNumber: any) {
-  if (endNumber === 0) {
-    return Countdown(startNumber);
-  }
+  // if (endNumber === 0) {
+  //   return Countdown(startNumber);
+  // }
   const [count, setCount] = useState(startNumber);
 
   useEffect(() => {
