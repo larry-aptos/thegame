@@ -291,7 +291,7 @@ module the_game::game_manager {
         let pool = &mut game_config.pool;
         // loop through current users and give money
         let current_players = simple_map::keys(&game_config.current);
-        while (vector::length(&current_players) > 1) {
+        while (vector::length(&current_players) > 0) {
             let player_won = vector::pop_back(&mut current_players);
             let amount = simple_map::borrow(&end_state, &player_won).potential_winning;
             let coins = coin::extract<AptosCoin>(pool, amount);
