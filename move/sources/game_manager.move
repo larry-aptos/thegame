@@ -286,6 +286,14 @@ module the_game::game_manager {
         coin::value<AptosCoin>(&game_config.pool)
     }
 
+    #[view]
+    public fun view_prize(
+        token: Object<Play>
+    ): u64 acquires Play {
+        let play = borrow_global<Play>(object::object_address(&token));
+        coin::value<AptosCoin>(&play.prize)
+    }
+
     // ======================================================================
     //   private helper functions //
     // ======================================================================
