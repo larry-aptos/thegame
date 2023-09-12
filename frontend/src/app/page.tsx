@@ -8,10 +8,7 @@ import useSubmitGameTransaction from "./sdk";
 import { useWallet } from "@aptos-labs/wallet-adapter-react";
 import WalletsModal from "./wallet/WalletModel";
 import FunPage from "./fun/page";
-<<<<<<< Updated upstream
 import { fetchAPI } from "./util";
-=======
->>>>>>> Stashed changes
 
 export default function LandingPage() {
   const context = useContext(StateContext);
@@ -48,9 +45,8 @@ export default function LandingPage() {
 
   useEffect(() => {
     if (showJoining) {
-
     }
-  }, [showJoining])
+  }, [showJoining]);
 
   // call joinGame where if users not wallet connected, open up wallet modal instead
   const handleJoinGame = async () => {
@@ -78,7 +74,7 @@ export default function LandingPage() {
           setStartReactionTimeGame(true);
         }
       }, 15);
-  
+
       return () => clearInterval(interval);
     }
   }, [count, showJoining]);
@@ -107,8 +103,6 @@ export default function LandingPage() {
     }
   };
 
-<<<<<<< Updated upstream
-=======
   useEffect(() => {
     if (context.gameState.gameStatus === GameStatus.STARTED) {
       const roundHasEnded = () => {
@@ -186,7 +180,6 @@ export default function LandingPage() {
     context.updatePlayerState(updatedPlayerState);
   };
 
->>>>>>> Stashed changes
   return (
     <Box width="100%" height="100vh">
       {showJoining ? (
