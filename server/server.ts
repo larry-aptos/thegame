@@ -23,6 +23,7 @@ interface GameState {
   latestPlayerState: LatestPlayerState;
   maxPlayer: number;
   numBtwSecs: number;
+  currentRound: number;
 }
 
 interface PlayerScore {
@@ -48,10 +49,12 @@ let gameState: GameState = {
   latestPlayerState: {},
   maxPlayer: 1,
   numBtwSecs: 10,
+  currentRound: 0,
 };
 
 app.post("/send_score", (req, res) => {
   try {
+    console.log(req.body);
     const requestBody = JSON.parse(req.body) as Score;
 
     const address = requestBody.address;
@@ -74,35 +77,35 @@ app.get('/view_state', async (req, res) => {
   return res.send(gameState);
 })
 
-app.get("/start_game", async (req, res) => {
+app.get("/init_game", async (req, res) => {
+  await forceClearPool();
   try {
     await initGame(60, 100000000, 50, 1);
   } catch (e) {
     console.error("Error init game:", e);
-    await forceClearPool();
   } finally {
-    startCountdown(10);
     res.send("Game started");
   }
 });
 
-async function startCountdown(seconds: number) {
-  if (seconds <= 0) {
-    try {
-      await advanceGame([], []);
-    } catch (e) {
-      console.log("Fail to close joining by advancing the game");
-    }
-  } else {
-    console.log(`Countdown: ${seconds} seconds remaining`);
-    setTimeout(() => {
-      startCountdown(seconds - 1);
-    }, 1000);
-  }
-}
+app.get("/start_game", async (req, res) => {
+  await advanceGame([], []);
+  return res.status(200).json('Game started...');
+})
 
 setInterval(runPeriodically, gameState.numBtwSecs * 1000);
+setInterval(runView, 1000);
 
+async function runView() {
+  const state = await viewLatestStates();
+
+  const localState: LatestPlayerState = {};
+  // @ts-ignore
+  state[0].data.map((object)=> {
+    localState[object.key] = object.value;
+  })
+  gameState = {...localState, ...gameState};
+}
 async function runPeriodically() {
   console.log("Periodic run triggered");
   const playerScoreKVPair = Object.entries(playerScore);
@@ -129,9 +132,11 @@ async function runPeriodically() {
       latestPlayerState: {},
       maxPlayer: 1,
       numBtwSecs: 10,
+      currentRound: 0,
     };
   } else {
     await advanceGame(lostPlayer, wonPlayer);
+    gameState.currentRound += 1;
   }
 }
 
