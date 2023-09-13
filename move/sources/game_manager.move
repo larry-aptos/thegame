@@ -11,11 +11,13 @@ module the_game::game_manager {
     use aptos_framework::aptos_account;
     use aptos_framework::aptos_coin::AptosCoin;
     use aptos_framework::coin::{Self, Coin};
-    use aptos_framework::object::{Self, Object, TransferRef};
+    use aptos_framework::object::{Self, Object};
     use aptos_framework::timestamp;
     use aptos_token_objects::collection;
     use aptos_token_objects::token::{Self, Token};
     use aptos_token_objects::property_map;
+
+    use the_game::profile;
 
     /// The account is not authorized to update the resources.
     const ENOT_AUTHORIZED: u64 = 1;
@@ -209,6 +211,7 @@ module the_game::game_manager {
         game_config.joinable = true;
         game_config.playable = false;
         game_config.round = 0;
+        game_config.total_players = 0;
         game_config.max_players = math64::min(max_players, vector::length(&NFT_URIS));
         game_config.num_max_winners = num_max_winners;
         game_config.available_nfts = vector[];
@@ -262,6 +265,8 @@ module the_game::game_manager {
         let token = mint(&minter, user_addr, utf8(NFT_NAME), utf8(NFT_DESCRIPTION), token_uri, game_config.total_players);
         simple_map::add(&mut game_config.current, user_addr, token);
         coin::merge(&mut game_config.pool, coins);
+        // Add game profile
+        profile::mint_profile_and_game_stats(user);
     }
 
     /// Advance game to next round
@@ -295,6 +300,8 @@ module the_game::game_manager {
             mark_play_loss(play);
             simple_map::remove(&mut game_config.current, &player);
             simple_map::add(&mut game_config.eliminated, player, player_state_view);
+            // update player results
+            profile::save_game_result(admin, player, 0, 0);
         };
     }
 
@@ -309,16 +316,21 @@ module the_game::game_manager {
         let pool = &mut game_config.pool;
         // loop through current users and give money
         let current_players = simple_map::keys(&game_config.current);
-        while (vector::length(&current_players) > 0) {
+        if (vector::is_empty(&current_players)) {
+            return
+        };
+        // There should be 1 player left for the end
+        while (vector::length(&current_players) > 1) {
             let player_won = vector::pop_back(&mut current_players);
             let amount = simple_map::borrow(&end_state, &player_won).potential_winning;
             let coins = coin::extract<AptosCoin>(pool, amount);
             // send money to the user's token
             let token_obj = simple_map::borrow(&game_config.current, &player_won);
             let play = borrow_global_mut<Play>(object::object_address(token_obj));
-            coin::merge(&mut play.prize, coins);
             let attributes = borrow_global_mut<Attributes>(object::object_address(token_obj));
-            attributes.prize = coin::value<AptosCoin>(&play.prize);
+            attributes.prize = amount;
+            let wins = attributes.wins;
+            coin::merge(&mut play.prize, coins);
             // Modify NFTs as well
             let token_uri = &simple_map::borrow(&end_state, &player_won).nft_uri;
             let new_suffix = if (string::index_of(token_uri, &utf8(b"alligator")) < string::length(token_uri)) {
@@ -334,19 +346,37 @@ module the_game::game_manager {
             } else {
                 utf8(b"")
             };
-            let token_uri = utf8(NFT_URI_PREFIX);
-            string::append(&mut token_uri, new_suffix);
+            let new_token_uri = utf8(NFT_URI_PREFIX);
+            string::append(&mut new_token_uri, new_suffix);
             let mutator_ref = &borrow_global<TokenMetadata>(object::object_address(token_obj)).mutator_ref;
-            token::set_uri(mutator_ref, token_uri);
+            token::set_uri(mutator_ref, new_token_uri);
+            profile::save_game_result(admin, player_won, wins, amount);
         };
         // pay the rest to the last player
         let last_player = vector::pop_back(&mut current_players);
         let token_obj = simple_map::borrow(&game_config.current, &last_player);
         let play = borrow_global_mut<Play>(object::object_address(token_obj));
-        coin::merge(&mut play.prize, coin::extract_all<AptosCoin>(pool));
         let attributes = borrow_global_mut<Attributes>(object::object_address(token_obj));
         attributes.prize = coin::value<AptosCoin>(pool);
         coin::merge(&mut play.prize, coin::extract_all<AptosCoin>(pool));
+        let token_uri = &simple_map::borrow(&end_state, &last_player).nft_uri;
+        let new_suffix = if (string::index_of(token_uri, &utf8(b"alligator")) < string::length(token_uri)) {
+            utf8(b"alligator_win.png")
+        } else if (string::index_of(token_uri, &utf8(b"kangaroo")) < string::length(token_uri)) {
+            utf8(b"kangaroo_win.png")
+        } else if (string::index_of(token_uri, &utf8(b"monkey")) < string::length(token_uri)) {
+            utf8(b"monkey_win.png")
+        } else if (string::index_of(token_uri, &utf8(b"panda")) < string::length(token_uri)) {
+            utf8(b"panda_win.png")
+        } else if (string::index_of(token_uri, &utf8(b"parrot")) < string::length(token_uri)) {
+            utf8(b"parrot_win.png")
+        } else {
+            utf8(b"")
+        };
+        let new_token_uri = utf8(NFT_URI_PREFIX);
+        string::append(&mut new_token_uri, new_suffix);
+        let mutator_ref = &borrow_global<TokenMetadata>(object::object_address(token_obj)).mutator_ref;
+        token::set_uri(mutator_ref, new_token_uri);
         profile::save_game_result(admin, last_player, attributes.wins, attributes.prize);
     }
 
@@ -484,7 +514,7 @@ module the_game::game_manager {
         object::transfer_with_ref(linear_transfer_ref, mint_to);
         // Add the traits to the object
         let attributes = Attributes {
-            wins: 0,
+            wins: 1,
             round: 0,
             prize: 0,
         };
@@ -511,12 +541,12 @@ module the_game::game_manager {
 
     /// If player wins we need to update the player
     fun mark_play_win(
-        play: Object<Play>
+        play: Object<Play>,
     ) acquires Attributes, TokenMetadata {
-        let attributes = borrow_global<Attributes>(object::object_address(&play));
-        let wins = attributes.wins + 1;
-        let round = attributes.round + 1;
-        update_attributes(play, wins, round, 0);
+        let attributes = borrow_global_mut<Attributes>(object::object_address(&play));
+        attributes.wins = attributes.wins + 1;
+        attributes.round = attributes.round + 1;
+        update_attributes(play, attributes.wins, attributes.round, 0);
     }
 
     /// If player loses we need to burn the NFT
@@ -613,15 +643,6 @@ module the_game::game_manager {
             &utf8(b"Prize"),
             attributes.prize,
         );
-    }
-
-    /// to can be user or object
-    fun creator_transfer(
-        transfer_ref: &TransferRef,
-        to: address,
-    ) {
-        let linear_transfer_ref = object::generate_linear_transfer_ref(transfer_ref);
-        object::transfer_with_ref(linear_transfer_ref, to);
     }
 
     /// Returns the signer of the collection.
