@@ -18,12 +18,20 @@ interface LatestPlayerState {
   [address: string]: PlayerStateView;
 }
 
+enum GameStatus {
+  NOT_INITED = "NOT_INITED",
+  INITED = "INITED",
+  STARTED = "STARTED",
+  ENDED = "ENDED",
+}
+
 interface GameState {
   pool: number;
   latestPlayerState: LatestPlayerState;
   maxPlayer: number;
   numBtwSecs: number;
   currentRound: number;
+  gameStatus: GameStatus;
 }
 
 interface PlayerScore {
@@ -40,22 +48,23 @@ const server = http.createServer(app);
 
 const port = process.env.PORT || 8000;
 
+app.use(express.json());
 app.use(cors());
 
 // initialize
 let playerScore: PlayerScore = {};
 let gameState: GameState = {
-  pool: 0,
+  pool: -1,
   latestPlayerState: {},
-  maxPlayer: 1,
-  numBtwSecs: 10,
-  currentRound: 0,
+  maxPlayer: -1,
+  numBtwSecs: -1,
+  currentRound: -1,
+  gameStatus: GameStatus.NOT_INITED
 };
 
 app.post("/send_score", (req, res) => {
   try {
-    console.log(req.body);
-    const requestBody = JSON.parse(req.body) as Score;
+    const requestBody = req.body as Score;
 
     const address = requestBody.address;
     const score = requestBody.score;
@@ -74,13 +83,16 @@ app.post("/send_score", (req, res) => {
 });
 
 app.get('/view_state', async (req, res) => {
-  return res.send(gameState);
+  return res.send(JSON.stringify(gameState));
 })
 
 app.get("/init_game", async (req, res) => {
   await forceClearPool();
   try {
-    await initGame(60, 100000000, 50, 1);
+    gameState.maxPlayer = 50;
+    gameState.numBtwSecs = 60;
+    gameState.gameStatus = GameStatus.INITED;
+    await initGame(gameState.numBtwSecs, 100000000, gameState.maxPlayer , 1);
   } catch (e) {
     console.error("Error init game:", e);
   } finally {
@@ -90,6 +102,8 @@ app.get("/init_game", async (req, res) => {
 
 app.get("/start_game", async (req, res) => {
   await advanceGame([], []);
+  gameState.gameStatus = GameStatus.STARTED;
+  gameState.currentRound += 1;
   return res.status(200).json('Game started...');
 })
 
@@ -104,10 +118,16 @@ async function runView() {
   state[0].data.map((object)=> {
     localState[object.key] = object.value;
   })
-  gameState = {...localState, ...gameState};
+  gameState = {
+    ...gameState,
+    latestPlayerState: {
+      ...gameState.latestPlayerState,
+      ...localState,
+    },
+  };
 }
+
 async function runPeriodically() {
-  console.log("Periodic run triggered");
   const playerScoreKVPair = Object.entries(playerScore);
 
   if (playerScoreKVPair.length === 0) {
@@ -115,6 +135,7 @@ async function runPeriodically() {
     return;
   }
 
+  // TODO: first auto fail the value of -1 as they accidentally click on red
   playerScoreKVPair.sort((a, b) => a[1] - b[1]);
   const middleIndex = Math.floor(playerScoreKVPair.length / 2);
 
@@ -123,16 +144,17 @@ async function runPeriodically() {
   const wonPlayer = lowerScores.map((pair) => pair[0]);
   const lostPlayer = higherScores.map((pair) => pair[0]);
 
-  if (wonPlayer.length <= gameState.maxPlayer) {
+  if (wonPlayer.length <= gameState.maxPlayer || playerScoreKVPair.length == 1) {
     await endGame();
     // reset the state
     playerScore = {};
     gameState = {
-      pool: 0,
+      pool: -1,
       latestPlayerState: {},
-      maxPlayer: 1,
-      numBtwSecs: 10,
-      currentRound: 0,
+      maxPlayer: -1,
+      numBtwSecs: -1,
+      currentRound: -1,
+      gameStatus: GameStatus.NOT_INITED
     };
   } else {
     await advanceGame(lostPlayer, wonPlayer);
