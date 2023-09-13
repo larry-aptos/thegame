@@ -23,6 +23,8 @@ module the_game::game_manager {
     const ENOT_OWNER: u64 = 2;
     /// Pool must be empty to be cleared
     const ENOT_EMPTY: u64 = 3;
+    /// Game is not playable
+    const ENOT_PLAYABLE: u64 = 4;
 
     const COLLECTION_NAME: vector<u8> = b"The Game";
     const COLLECTION_DESCRIPTION: vector<u8> = b"Welcome to THE GAME - An interactive, risk based, gamified and social experience on Aptos. Are you going to be the last person standing?";
@@ -97,6 +99,7 @@ module the_game::game_manager {
         b"parrot11.png",
         b"parrot12.png"
     ];
+
     struct GameConfig has key {
         pool: Coin<AptosCoin>,
         eliminated: SimpleMap<address, PlayerStateView>,
@@ -104,11 +107,25 @@ module the_game::game_manager {
         secs_between_rounds: u64,
         buy_in: u64,
         joinable: bool,
+        playable: bool,
+        round: u64,
         extend_ref: object::ExtendRef,
         max_players: u64,
         total_players: u64,
         num_max_winners: u64,
         available_nfts: vector<String>,
+    }
+
+    struct GameStateView has copy, store, drop {
+        secs_between_rounds: u64,
+        buy_in: u64,
+        joinable: bool,
+        playable: bool,
+        round: u64,
+        max_players: u64,
+        num_max_winners: u64,
+        pool: u64,
+        latest_player_states: SimpleMap<address, PlayerStateView>,
     }
 
     struct PlayerStateView has copy, store, drop {
@@ -141,6 +158,7 @@ module the_game::game_manager {
     struct Attributes has key, drop {
         wins: u64,
         round: u64,
+        prize: u64,
     }
 
     fun init_module(
@@ -163,6 +181,8 @@ module the_game::game_manager {
             secs_between_rounds: 0,
             buy_in: 0,
             joinable: false,
+            playable: false,
+            round: 0,
             extend_ref,
             max_players: 0,
             total_players: 0,
@@ -187,6 +207,8 @@ module the_game::game_manager {
         game_config.secs_between_rounds = secs_between_rounds;
         game_config.buy_in = buy_in;
         game_config.joinable = true;
+        game_config.playable = false;
+        game_config.round = 0;
         game_config.max_players = math64::min(max_players, vector::length(&NFT_URIS));
         game_config.num_max_winners = num_max_winners;
         game_config.available_nfts = vector[];
@@ -231,25 +253,15 @@ module the_game::game_manager {
         if (simple_map::contains_key(&game_config.eliminated, &user_addr)) {
             assert!(false, error::permission_denied(ENOT_AUTHORIZED));
         };
-        // If user is already in game, exit
-        let minter = object::generate_signer_for_extending(&game_config.extend_ref);
         // randomly pick a token uri
         let random_index = timestamp::now_microseconds() % vector::length(&game_config.available_nfts);
         let suffix = vector::remove(&mut game_config.available_nfts, random_index);
         let token_uri = utf8(NFT_URI_PREFIX);
         string::append(&mut token_uri, suffix);
+        let minter = object::generate_signer_for_extending(&game_config.extend_ref);
         let token = mint(&minter, user_addr, utf8(NFT_NAME), utf8(NFT_DESCRIPTION), token_uri, game_config.total_players);
         simple_map::add(&mut game_config.current, user_addr, token);
         coin::merge(&mut game_config.pool, coins);
-    }
-
-    /// Join game if not already in game and if the game is joinable
-    entry fun close_joining(
-        admin: &signer,
-    ) acquires GameConfig {
-        assert!(signer::address_of(admin) == @the_game, error::permission_denied(ENOT_AUTHORIZED));
-        let game_config = borrow_global_mut<GameConfig>(@the_game);
-        game_config.joinable = false;
     }
 
     /// Advance game to next round
@@ -261,6 +273,11 @@ module the_game::game_manager {
         assert!(signer::address_of(admin) == @the_game, error::permission_denied(ENOT_AUTHORIZED));
         let game_config = borrow_global_mut<GameConfig>(@the_game);
         game_config.joinable = false;
+        if (game_config.round > 0 && !game_config.playable) {
+            assert!(false, error::permission_denied(ENOT_PLAYABLE));
+        };
+        game_config.playable = true;
+        game_config.round = game_config.round + 1;
 
         // handle user who won first
         while (!vector::is_empty(&players_won)) {
@@ -286,8 +303,9 @@ module the_game::game_manager {
         admin: &signer,
     ) acquires GameConfig, Play, Attributes, TokenMetadata {
         assert!(signer::address_of(admin) == @the_game, error::permission_denied(ENOT_AUTHORIZED));
-        let end_state = view_latest_states();
+        let end_state = view_player_states();
         let game_config = borrow_global_mut<GameConfig>(@the_game);
+        game_config.playable = false;
         let pool = &mut game_config.pool;
         // loop through current users and give money
         let current_players = simple_map::keys(&game_config.current);
@@ -299,6 +317,8 @@ module the_game::game_manager {
             let token_obj = simple_map::borrow(&game_config.current, &player_won);
             let play = borrow_global_mut<Play>(object::object_address(token_obj));
             coin::merge(&mut play.prize, coins);
+            let attributes = borrow_global_mut<Attributes>(object::object_address(token_obj));
+            attributes.prize = coin::value<AptosCoin>(&play.prize);
             // Modify NFTs as well
             let token_uri = &simple_map::borrow(&end_state, &player_won).nft_uri;
             let new_suffix = if (string::index_of(token_uri, &utf8(b"alligator")) < string::length(token_uri)) {
@@ -324,23 +344,27 @@ module the_game::game_manager {
         let token_obj = simple_map::borrow(&game_config.current, &last_player);
         let play = borrow_global_mut<Play>(object::object_address(token_obj));
         coin::merge(&mut play.prize, coin::extract_all<AptosCoin>(pool));
+        let attributes = borrow_global_mut<Attributes>(object::object_address(token_obj));
+        attributes.prize = coin::value<AptosCoin>(&play.prize);
     }
 
     /// Claim coin
     entry fun claim(
         claimer: &signer,
         token: Object<Token>,
-    ) acquires Play {
+    ) acquires Play, Attributes {
         let claimer_addr = signer::address_of(claimer);
         let owner = object::owner(token);
         assert!(claimer_addr == owner, error::permission_denied(ENOT_OWNER));
         let play = borrow_global_mut<Play>(object::object_address(&token));
         let coins = coin::extract_all(&mut play.prize);
         coin::deposit<AptosCoin>(claimer_addr, coins);
+        let attributes = borrow_global_mut<Attributes>(object::object_address(&token));
+        attributes.prize = 0;
     }
 
     #[view]
-    public fun view_latest_states(): SimpleMap<address, PlayerStateView> acquires GameConfig, Play, Attributes {
+    public fun view_player_states(): SimpleMap<address, PlayerStateView> acquires GameConfig, Play, Attributes {
         let game_config = borrow_global<GameConfig>(@the_game);
         let player_states = simple_map::create<address, PlayerStateView>();
         // Loop through alive players
@@ -380,9 +404,20 @@ module the_game::game_manager {
     }
 
     #[view]
-    public fun view_current_pool(): u64 acquires GameConfig {
+    public fun view_game_states(): GameStateView acquires GameConfig, Play, Attributes {
+        let player_states = view_player_states();
         let game_config = borrow_global<GameConfig>(@the_game);
-        coin::value<AptosCoin>(&game_config.pool)
+        GameStateView {
+            secs_between_rounds: game_config.secs_between_rounds,
+            buy_in: game_config.buy_in,
+            joinable: game_config.joinable,
+            playable: game_config.playable,
+            round: game_config.round,
+            max_players: game_config.max_players,
+            num_max_winners: game_config.num_max_winners,
+            pool: coin::value<AptosCoin>(&game_config.pool),
+            latest_player_states: player_states,
+        }
     }
 
     #[view]
@@ -449,6 +484,7 @@ module the_game::game_manager {
         let attributes = Attributes {
             wins: 0,
             round: 0,
+            prize: 0,
         };
         // Initialize the property map for display
         let properties = property_map::prepare_input(vector[], vector[], vector[]);
@@ -478,7 +514,7 @@ module the_game::game_manager {
         let attributes = borrow_global<Attributes>(object::object_address(&play));
         let wins = attributes.wins + 1;
         let round = attributes.round + 1;
-        update_attributes(play, wins, round);
+        update_attributes(play, wins, round, 0);
     }
 
     /// If player loses we need to burn the NFT
@@ -521,6 +557,7 @@ module the_game::game_manager {
         play: Object<Play>,
         wins: u64,
         round: u64,
+        prize: u64,
     ) acquires Attributes, TokenMetadata {
         let attributes = borrow_global_mut<Attributes>(object::object_address(&play));
         attributes.wins = wins;
@@ -530,6 +567,7 @@ module the_game::game_manager {
         update_attributes_property_map(property_mutator_ref, &Attributes {
             wins,
             round,
+            prize,
         });
     }
 
@@ -547,6 +585,11 @@ module the_game::game_manager {
             utf8(b"Round"),
             attributes.round,
         );
+        property_map::add_typed(
+            mutator_ref,
+            utf8(b"Prize"),
+            attributes.prize,
+        );
     }
 
     fun update_attributes_property_map(
@@ -562,6 +605,11 @@ module the_game::game_manager {
             mutator_ref,
             &utf8(b"Round"),
             attributes.round,
+        );
+        property_map::update_typed(
+            mutator_ref,
+            &utf8(b"Prize"),
+            attributes.prize,
         );
     }
 

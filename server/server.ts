@@ -8,21 +8,14 @@ import { AptosClient, Types } from "aptos";
 dotenv.config();
 
 interface PlayerStateView {
-  isAlive: boolean;
+  is_alive: boolean;
   wins: number;
-  nftUri: string;
-  potentialWinning: number;
-  tokenIndex: number;
+  nft_uri: string;
+  potential_winning: number;
+  token_index: number;
 }
 interface LatestPlayerState {
   [address: string]: PlayerStateView;
-}
-
-enum GameStatus {
-  NOT_INITED = "NOT_INITED",
-  INITED = "INITED",
-  STARTED = "STARTED",
-  ENDED = "ENDED",
 }
 
 interface GameState {
@@ -30,8 +23,11 @@ interface GameState {
   latestPlayerState: LatestPlayerState;
   maxPlayer: number;
   numBtwSecs: number;
-  currentRound: number;
-  gameStatus: GameStatus;
+  buyIn: number;
+  joinable: boolean;
+  playable: boolean;
+  round: number;
+  numMaxWinner: number;
 }
 
 interface PlayerScore {
@@ -58,9 +54,14 @@ let gameState: GameState = {
   latestPlayerState: {},
   maxPlayer: -1,
   numBtwSecs: -1,
-  currentRound: -1,
-  gameStatus: GameStatus.NOT_INITED
+  round: 0,
+  joinable: false,
+  playable: false,
+  buyIn: -1,
+  numMaxWinner: 1
 };
+let viewFunctionTimestamp = Date.now();
+let roundTimestamp = Date.now();
 
 app.post("/send_score", (req, res) => {
   try {
@@ -68,6 +69,7 @@ app.post("/send_score", (req, res) => {
 
     const address = requestBody.address;
     const score = requestBody.score;
+    console.log("Got Score", address, score);
 
     if (address in playerScore) {
       // do nothing cuz we just persist the first score to avoid cheating
@@ -89,10 +91,7 @@ app.get('/view_state', async (req, res) => {
 app.get("/init_game", async (req, res) => {
   await forceClearPool();
   try {
-    gameState.maxPlayer = 50;
-    gameState.numBtwSecs = 60;
-    gameState.gameStatus = GameStatus.INITED;
-    await initGame(gameState.numBtwSecs, 100000000, gameState.maxPlayer , 1);
+    await initGame(Number(process.env.SECOND_BTW_ROUNDS), Number(process.env.BUY_AMOUNT), Number(process.env.MAX_PLAYER), Number(process.env.MAX_WINNER));
   } catch (e) {
     console.error("Error init game:", e);
   } finally {
@@ -102,69 +101,131 @@ app.get("/init_game", async (req, res) => {
 
 app.get("/start_game", async (req, res) => {
   await advanceGame([], []);
-  gameState.gameStatus = GameStatus.STARTED;
-  gameState.currentRound += 1;
+  roundTimestamp = Date.now()
   return res.status(200).json('Game started...');
 })
 
-setInterval(runPeriodically, gameState.numBtwSecs * 1000);
-setInterval(runView, 1000);
+async function updateGameState() {
+  viewFunctionTimestamp = Date.now();
+  const state = await viewGameState();
 
-async function runView() {
-  const state = await viewLatestStates();
+  const viewState: GameState = {
+    pool: 0,
+    latestPlayerState: {},
+    maxPlayer: 0,
+    numBtwSecs: 0,
+    buyIn: 0,
+    joinable: false,
+    playable: false,
+    round: 0,
+    numMaxWinner: 1
+  };
 
   const localState: LatestPlayerState = {};
+
   // @ts-ignore
-  state[0].data.map((object)=> {
+  state[0].latest_player_states.data.map((object)=> {
     localState[object.key] = object.value;
   })
-  gameState = {
-    ...gameState,
-    latestPlayerState: {
-      ...gameState.latestPlayerState,
-      ...localState,
-    },
-  };
+
+  // @ts-ignore
+  viewState.buyIn = state[0].buy_in;
+  // @ts-ignore
+  viewState.joinable = state[0].joinable;
+  // @ts-ignore
+  viewState.latestPlayerState = localState;
+  // @ts-ignore
+  viewState.maxPlayer = state[0].max_players;
+  // @ts-ignore
+  viewState.playable = state[0].playable;
+  // @ts-ignore
+  viewState.pool = state[0].pool;
+  // @ts-ignore
+  viewState.round = state[0].round;
+  // @ts-ignore
+  viewState.numBtwSecs = state[0].secs_between_rounds;
+  // @ts-ignore
+  viewState.numMaxWinner = state[0].num_max_winners;
+  
+  gameState = deepCopy(viewState);
 }
 
-async function runPeriodically() {
-  const playerScoreKVPair = Object.entries(playerScore);
+function deepCopy<T>(obj: T): T {
+  return JSON.parse(JSON.stringify(obj));
+}
 
-  if (playerScoreKVPair.length === 0) {
-    // early return if we don't get any players in this round
+async function runGameLogic() {
+  await updateGameState();
+
+  if (gameState.joinable || !gameState.playable) {
+    console.log('Join stage or no game');
+    return;
+  }
+  
+  let alivePlayerCount = {num: 0};
+  Object.entries(gameState.latestPlayerState).map(([addr, playerView]) => {
+    if (playerView.is_alive) {
+      alivePlayerCount.num += 1;
+    }
+  })
+
+  if (alivePlayerCount.num <= gameState.numMaxWinner) {
+    await endGame();
     return;
   }
 
-  // TODO: first auto fail the value of -1 as they accidentally click on red
-  playerScoreKVPair.sort((a, b) => a[1] - b[1]);
-  const middleIndex = Math.floor(playerScoreKVPair.length / 2);
+  let wonPlayer: string[] = [];
+  let lostPlayer: string[] = [];
 
-  const lowerScores = playerScoreKVPair.slice(0, middleIndex);
-  const higherScores = playerScoreKVPair.slice(middleIndex);
-  const wonPlayer = lowerScores.map((pair) => pair[0]);
-  const lostPlayer = higherScores.map((pair) => pair[0]);
+  // loop through playerState
+  console.log('blH', playerScore);
 
-  if (wonPlayer.length <= gameState.maxPlayer || playerScoreKVPair.length == 1) {
-    await endGame();
-    // reset the state
-    playerScore = {};
-    gameState = {
-      pool: -1,
-      latestPlayerState: {},
-      maxPlayer: -1,
-      numBtwSecs: -1,
-      currentRound: -1,
-      gameStatus: GameStatus.NOT_INITED
-    };
-  } else {
-    await advanceGame(lostPlayer, wonPlayer);
-    gameState.currentRound += 1;
+  let score = {score: 0, num: 0};
+  Object.entries(playerScore).map((obj) => {
+    score.score += obj[1];
+    score.num ++;
+  })
+
+  const avg = score.score / score.num;
+  
+  console.log('AVG', avg);
+
+  Object.entries(gameState.latestPlayerState).forEach(([addr, playerState]) => {
+    if (playerState.is_alive) {
+      if (playerScore[addr] <= avg) {
+        wonPlayer.push(addr);
+      } else {
+        lostPlayer.push(addr);
+      }
+    }
+  });
+
+  if (wonPlayer.length === 0 ) {
+    console.log('Did not get any winners');
+    return;
+  }
+
+  await advanceGame(lostPlayer, wonPlayer);
+  playerScore = {};
+}
+
+async function main() {
+  while (true) {
+    const currTimestamp = Date.now()
+    if (currTimestamp - viewFunctionTimestamp >= 500) { // 1 sec
+      await updateGameState();
+    }
+    const gameStarted = !gameState.joinable && gameState.playable;
+    if (currTimestamp - roundTimestamp >= gameState?.numBtwSecs*1000 && gameStarted) {
+      console.log('time diff', currTimestamp - roundTimestamp);
+      await runGameLogic();
+    }
   }
 }
 
-export async function viewLatestStates(): Promise<Types.MoveValue[]> {
+export async function viewGameState(): Promise<Types.MoveValue[]> {
   const payload: Types.ViewRequest = {
-    function: `${process.env.CONTRACT_ADDRESS}::game_manager::view_latest_states`,
+    function: `${process.env.CONTRACT_ADDRESS}::game_manager::view_game_states`,
     type_arguments: [],
     arguments: [],
   };
@@ -175,3 +236,5 @@ export async function viewLatestStates(): Promise<Types.MoveValue[]> {
 server.listen(port, () => {
   console.log(`⚡️[server]: Server is running at http://localhost:${port}`);
 });
+
+main();
