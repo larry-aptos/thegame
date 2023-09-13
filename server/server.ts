@@ -85,6 +85,7 @@ app.post("/send_score", (req, res) => {
 });
 
 app.get('/view_state', async (req, res) => {
+  console.log("view state");
   return res.send(JSON.stringify(gameState));
 })
 

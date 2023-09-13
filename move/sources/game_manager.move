@@ -345,7 +345,9 @@ module the_game::game_manager {
         let play = borrow_global_mut<Play>(object::object_address(token_obj));
         coin::merge(&mut play.prize, coin::extract_all<AptosCoin>(pool));
         let attributes = borrow_global_mut<Attributes>(object::object_address(token_obj));
-        attributes.prize = coin::value<AptosCoin>(&play.prize);
+        attributes.prize = coin::value<AptosCoin>(pool);
+        coin::merge(&mut play.prize, coin::extract_all<AptosCoin>(pool));
+        profile::save_game_result(admin, last_player, attributes.wins, attributes.prize);
     }
 
     /// Claim coin
