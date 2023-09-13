@@ -331,6 +331,7 @@ module the_game::game_manager {
             attributes.prize = amount;
             let wins = attributes.wins;
             coin::merge(&mut play.prize, coins);
+            sync_prize(token_obj, amount);
             // Modify NFTs as well
             let token_uri = &simple_map::borrow(&end_state, &player_won).nft_uri;
             let new_suffix = if (string::index_of(token_uri, &utf8(b"alligator")) < string::length(token_uri)) {
@@ -358,6 +359,7 @@ module the_game::game_manager {
         let play = borrow_global_mut<Play>(object::object_address(token_obj));
         let attributes = borrow_global_mut<Attributes>(object::object_address(token_obj));
         attributes.prize = coin::value<AptosCoin>(pool);
+        sync_prize(token_obj, coin::value<AptosCoin>(pool));
         coin::merge(&mut play.prize, coin::extract_all<AptosCoin>(pool));
         let token_uri = &simple_map::borrow(&end_state, &last_player).nft_uri;
         let new_suffix = if (string::index_of(token_uri, &utf8(b"alligator")) < string::length(token_uri)) {
@@ -601,6 +603,18 @@ module the_game::game_manager {
             round,
             prize,
         });
+    }
+
+    fun sync_prize(
+        token: &Object<Token>,
+        prize: u64,
+    ) acquires TokenMetadata {
+        let property_mutator_ref = &borrow_global<TokenMetadata>(object::object_address(token)).property_mutator_ref;
+        property_map::update_typed(
+            property_mutator_ref,
+            &utf8(b"Prize"),
+            prize,
+        );
     }
 
     fun add_attributes_property_map(
